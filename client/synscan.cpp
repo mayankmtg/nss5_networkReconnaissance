@@ -63,19 +63,29 @@ struct iphdr* craft_ip_header(char* packet, char* src_addr_char, unsigned int d_
 	return iph;
 }
 
-struct tcphdr* craft_tcp_header(char* packet){
+struct tcphdr* craft_tcp_header(char* packet, int port_no, char scan_type){
 	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof (struct ip));
 	tcph->source = htons (8080);
-    tcph->dest = htons (8000);
+    tcph->dest = htons (port_no);
     tcph->seq = 0;
     tcph->ack_seq = 0;
     tcph->doff = 5;
-    tcph->fin=0;
-    tcph->syn=1;
-    tcph->rst=0;
-    tcph->psh=0;
-    tcph->ack=0;
-    tcph->urg=0;
+	if(scan_type == 's'){
+		tcph->fin=0;
+		tcph->syn=1;
+		tcph->rst=0;
+		tcph->psh=0;
+		tcph->ack=0;
+		tcph->urg=0;
+	}
+	else{
+		tcph->fin=1;
+		tcph->syn=0;
+		tcph->rst=0;
+		tcph->psh=0;
+		tcph->ack=0;
+		tcph->urg=0;
+	}
     tcph->window = htons (5840);
     tcph->check = 0;
     tcph->urg_ptr = 0;
@@ -93,7 +103,7 @@ struct pseudo_header craft_pseudo_header(char* src_addr_char, unsigned int d_add
 	return psh;
 }
 
-bool send_syn(char* dst_addr_char){
+bool send_syn(char* dst_addr_char, int port_no){
 
 	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 	char packet[4096];
@@ -107,7 +117,7 @@ bool send_syn(char* dst_addr_char){
 	char src_addr_char[16];
 	sprintf(src_addr_char, "%d.%d.%d.%d\n", 192,168 ,2,166);
 	struct iphdr *iph = craft_ip_header(packet, src_addr_char, sin.sin_addr.s_addr);
-	struct tcphdr *tcph = craft_tcp_header(packet);
+	struct tcphdr *tcph = craft_tcp_header(packet, port_no);
 	struct pseudo_header psh = craft_pseudo_header(src_addr_char,sin.sin_addr.s_addr);	
 
     memcpy(&psh.tcp , tcph , sizeof (struct tcphdr));
@@ -123,15 +133,88 @@ bool send_syn(char* dst_addr_char){
         throw_error("sending", "sending packet");
 	}
 
-    close(s);
+	// sleep(0.04);
+	char recvPacket[4096] = "";
+	int newData = recv(s,recvPacket,sizeof(recvPacket),0);
+	struct iphdr *rec_iph = (struct iphdr *) recvPacket;
+	// cout << "version: "<<rec_iph->version << endl;
+	struct tcphdr* rec_tcp = (struct tcphdr *) (recvPacket + sizeof (struct ip));
+	cout << port_no<< "\t:\t"<< 'f' << rec_tcp->fin << 's' << rec_tcp->syn << 'r' << rec_tcp->rst << 'p' << rec_tcp->psh << 'a' << rec_tcp->ack << 'u' << rec_tcp->urg;
+	if(rec_tcp->fin == 0 && rec_tcp->syn == 0 && rec_tcp->rst == 1 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
+		// RST 1 && ACK 1
+		cout << "\tRST ACK" << endl;
+	}
+	else if(rec_tcp->fin == 0 && rec_tcp->syn == 1 && rec_tcp->rst == 0 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
+		cout << "\tSYN ACK" << endl;
+	}
+	else{
+		cout << "\tELSE" << endl;
+	}
+	close(s);
 	return true;
 }
 
-bool send_fin(){
+
+bool send_fin(char* dst_addr_char, int port_no){
+	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
+	char packet[4096];
+	// struct iphdr* iph = (struct iphdr*) packet;
+	struct sockaddr_in sin;
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(8080);
+    sin.sin_addr.s_addr = inet_addr (dst_addr_char);
+
+	memset(packet, 0, 4096);
+	char src_addr_char[16];
+	sprintf(src_addr_char, "%d.%d.%d.%d\n", 192,168 ,2,166);
+	struct iphdr *iph = craft_ip_header(packet, src_addr_char, sin.sin_addr.s_addr);
+	struct tcphdr *tcph = craft_tcp_header(packet, port_no);
+	struct pseudo_header psh = craft_pseudo_header(src_addr_char,sin.sin_addr.s_addr);	
+
+    memcpy(&psh.tcp , tcph , sizeof (struct tcphdr));
+    tcph->check = csum( (unsigned short*) &psh , sizeof (struct pseudo_header));
+
+	int one = 1;
+    const int *val = &one;
+    int sockop = setsockopt (s, IPPROTO_IP, IP_HDRINCL, val, sizeof (one));
+    if (sockop < 0){
+        throw_error("access", "root access required");
+    }
+    if(sendto (s, packet, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0){
+        throw_error("sending", "sending packet");
+	}
+
+	// sleep(0.04);
+	char recvPacket[4096] = "";
+	int newData = recv(s,recvPacket,sizeof(recvPacket),0);
+	struct iphdr *rec_iph = (struct iphdr *) recvPacket;
+	// cout << "version: "<<rec_iph->version << endl;
+	struct tcphdr* rec_tcp = (struct tcphdr *) (recvPacket + sizeof (struct ip));
+	cout << port_no<< "\t:\t"<< 'f' << rec_tcp->fin << 's' << rec_tcp->syn << 'r' << rec_tcp->rst << 'p' << rec_tcp->psh << 'a' << rec_tcp->ack << 'u' << rec_tcp->urg;
+	if(rec_tcp->fin == 0 && rec_tcp->syn == 0 && rec_tcp->rst == 1 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
+		// RST 1 && ACK 1
+		cout << "\tRST ACK" << endl;
+	}
+	else if(rec_tcp->fin == 0 && rec_tcp->syn == 1 && rec_tcp->rst == 0 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
+		cout << "\tSYN ACK" << endl;
+	}
+	else{
+		cout << "\tELSE" << endl;
+	}
+	close(s);
+	return true;
+
 
 }
-int main(int argc, char argv[]){
-	string dst_addr = "192.168.65.101";
-	cout << send_syn((char *)dst_addr.c_str()) << endl;
+int main(int argc, char* argv[]){
+	string dst_addr;
+	if(argc != 2){
+		dst_addr = argv[1];
+		break;
+	}
+	// string dst_addr = "192.168.65.101";
+	for (int i =7000;i <=7100; i++){
+		send_syn((char *)dst_addr.c_str(), i);
+	}
 	return 0;
 }
