@@ -5,6 +5,7 @@
 #include <netinet/tcp.h>
 #include <netinet/ip.h>
 #include <errno.h>
+#include <ctime>
 
 using namespace std;
 
@@ -17,6 +18,11 @@ struct pseudo_header
     unsigned short tcp_length;
     struct tcphdr tcp;
 };
+
+unsigned short swaps( unsigned short val)
+{
+    return ((val & 0xff) << 8) | ((val & 0xff00) >> 8);
+}
 
 void throw_error(string type, string s){
 	cerr <<"error\t"<< type << " : " << s << endl;
@@ -70,8 +76,8 @@ struct tcphdr* craft_tcp_header(char* packet, int port_no){
     tcph->seq = 0;
     tcph->ack_seq = 0;
     tcph->doff = 5;
-	tcph->fin=0;
-	tcph->syn=1;
+	tcph->fin=1;
+	tcph->syn=0;
 	tcph->rst=0;
 	tcph->psh=0;
 	tcph->ack=0;
@@ -93,7 +99,7 @@ struct pseudo_header craft_pseudo_header(char* src_addr_char, unsigned int d_add
 	return psh;
 }
 
-bool send_syn(char* dst_addr_char, int port_no){
+bool send_fin(char* dst_addr_char, int port_no){
 
 	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 	char packet[4096];
@@ -122,23 +128,54 @@ bool send_syn(char* dst_addr_char, int port_no){
     if(sendto (s, packet, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0){
         throw_error("sending", "sending packet");
 	}
-
+	struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+    if (setsockopt (s, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,sizeof(timeout)) < 0){
+        throw_error("options", "setsockopt failed");
+	}
 	// sleep(0.04);
 	char recvPacket[4096] = "";
-	int newData = recv(s,recvPacket,sizeof(recvPacket),0);
-	struct iphdr *rec_iph = (struct iphdr *) recvPacket;
-	// cout << "version: "<<rec_iph->version << endl;
-	struct tcphdr* rec_tcp = (struct tcphdr *) (recvPacket + sizeof (struct ip));
-	cout << port_no<< "\t:\t"<< 'f' << rec_tcp->fin << 's' << rec_tcp->syn << 'r' << rec_tcp->rst << 'p' << rec_tcp->psh << 'a' << rec_tcp->ack << 'u' << rec_tcp->urg;
-	if(rec_tcp->fin == 0 && rec_tcp->syn == 0 && rec_tcp->rst == 1 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
-		// RST 1 && ACK 1
-		cout << "\tRST ACK" << endl;
+	// struct sockaddr_in *sin2;
+	// struct sockaddr temp;
+	// socklen_t llen;
+	int timeout_flag = 0;
+	time_t start, finish;
+	time(&start);
+	while(true){
+		int newData = recv(s,recvPacket,sizeof(recvPacket),0);
+		if(newData == -1 && (errno== EAGAIN || errno==EWOULDBLOCK)){
+			timeout_flag = 1;
+			break;
+		}
+		time(&finish);
+		if(difftime(finish, start) >= 5){
+			timeout_flag = 1;
+			break;
+		}
+		struct iphdr *rec_iph = (struct iphdr *) recvPacket;
+		struct tcphdr* rec_tcp = (struct tcphdr *) (recvPacket + sizeof (struct ip));
+		if(ntohs(rec_tcp->dest) == 8080){
+			cout << port_no<< "\t:\t"<< 'f' << rec_tcp->fin << 's' << rec_tcp->syn << 'r' << rec_tcp->rst << 'p' << rec_tcp->psh << 'a' << rec_tcp->ack << 'u' << rec_tcp->urg;
+			if(rec_tcp->fin == 0 && rec_tcp->syn == 0 && rec_tcp->rst == 1 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
+				// RST 1 && ACK 1
+				cout << "\tRST ACK" << endl;
+			}
+			else if(rec_tcp->fin == 0 && rec_tcp->syn == 1 && rec_tcp->rst == 0 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
+				cout << "\tSYN ACK" << endl;
+			}
+			else{
+				cout << "\tELSE" << endl;
+			}
+			break;
+		}
+		else{
+			continue;
+		}
 	}
-	else if(rec_tcp->fin == 0 && rec_tcp->syn == 1 && rec_tcp->rst == 0 && rec_tcp->psh == 0 && rec_tcp->ack == 1 && rec_tcp->urg == 0){
-		cout << "\tSYN ACK" << endl;
-	}
-	else{
-		cout << "\tELSE" << endl;
+	if(timeout_flag == 1){
+		cout << port_no<< "\t:\t"<< 'f' << 0 << 's' << 0 << 'r' << 0 << 'p' << 0 << 'a' << 0 << 'u' << 0;
+		cout << "\tFIN OUT" << endl;
 	}
 	close(s);
 	return true;
@@ -146,8 +183,8 @@ bool send_syn(char* dst_addr_char, int port_no){
 
 int main(int argc, char* argv[]){
 	string dst_addr = "192.168.2.166";
-	for (int i =7000;i <=7100; i++){
-		send_syn((char *)dst_addr.c_str(), i);
+	for (int i =7000;i <=7010; i++){
+		send_fin((char *)dst_addr.c_str(), i);
 	}
 	return 0;
 }
