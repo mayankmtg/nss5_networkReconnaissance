@@ -143,12 +143,11 @@ bool send_udp(char* dst_addr_char, int port_no){
         throw_error("sending", "sending packet");
 	}
 	struct timeval timeout;
-    timeout.tv_sec = 2;
+    timeout.tv_sec = 3;
     timeout.tv_usec = 0;
     if (setsockopt (s2, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,sizeof(timeout)) < 0){
         throw_error("options", "setsockopt failed");
 	}
-	// sleep(0.04);
 	char recvPacket[4096] = "";
 	// struct sockaddr_in *sin2;
 	// struct sockaddr temp;
@@ -169,9 +168,9 @@ bool send_udp(char* dst_addr_char, int port_no){
 		// }
 		struct iphdr *rec_iph = (struct iphdr *) recvPacket;
 		struct icmphdr* rec_icmp = (struct icmphdr *) (recvPacket + sizeof (struct ip));
-        cout << port_no<< "\t:\t"<< ntohs(rec_icmp->type) << " " << ntohs(rec_icmp->code) << endl;        
+        // cout << port_no<< "\t:\t"<< ntohs(rec_icmp->type) << " " << ntohs(rec_icmp->code) << endl;        
 		if(rec_iph->saddr = inet_addr(src_addr_char)){
-			cout << port_no<< "\t:\t"<< ntohs(rec_icmp->type) << " " << ntohs(rec_icmp->code) << endl;
+			cout << port_no<< "\t:\t"<< "ICMP ERROR" << endl;
 			break;
 		}
 		else{
@@ -190,6 +189,7 @@ int main(int argc, char* argv[]){
 	string dst_addr = "192.168.2.166";
 	for (int i =7000;i <=7100; i++){
 		send_udp((char *)dst_addr.c_str(), i);
+        sleep(1);
 	}
 	return 0;
 }
